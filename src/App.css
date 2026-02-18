@@ -283,6 +283,67 @@ button:disabled {
   background: linear-gradient(135deg, #0284c7, #1d4ed8);
 }
 
+.ad-group-links-btn {
+  margin-top: 0.15rem;
+  padding: 0.42rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 50;
+}
+
+.snapshot-modal {
+  width: min(760px, 100%);
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.snapshot-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.snapshot-modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #dbeafe;
+}
+
+.snapshot-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.snapshot-list li {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.6rem;
+  padding: 0.55rem;
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.snapshot-list span {
+  color: #cbd5e1;
+  font-size: 0.87rem;
+}
+
 .load-more-wrap {
   margin-top: 1rem;
   display: flex;

@@ -68,13 +68,28 @@ function buildCreativeFingerprint(ad) {
   const title = normalizeValue(firstOrEmpty(ad.ad_creative_link_titles))
   const caption = normalizeValue(firstOrEmpty(ad.ad_creative_link_captions))
   const description = normalizeValue(firstOrEmpty(ad.ad_creative_link_descriptions))
+  const creativeSignals = [body, title, caption, description]
+
+  if (creativeSignals.every((value) => !value)) {
+    return ''
+  }
 
   return [pageId, body, title, caption, description].join('|')
 }
 
-function getDetectedCopies(ad, copiesMap) {
+function buildAdGroupKey(ad) {
   const fingerprint = buildCreativeFingerprint(ad)
-  return copiesMap.get(fingerprint) || 1
+
+  if (fingerprint) {
+    return `creative:${fingerprint}`
+  }
+
+  return `ad:${ad.id}`
+}
+
+function getDetectedCopies(ad, copiesMap) {
+  const groupKey = buildAdGroupKey(ad)
+  return copiesMap.get(groupKey) || 1
 }
 
 function collectUrlStringsFromAd(ad) {
@@ -368,6 +383,7 @@ function App() {
   const [hasMore, setHasMore] = useState(false)
   const [nextPageUrl, setNextPageUrl] = useState('')
   const [currentQuery, setCurrentQuery] = useState(null)
+  const [activeSnapshotGroupKey, setActiveSnapshotGroupKey] = useState('')
 
   const canSearch = useMemo(
     () => searchTerms.trim().length > 0 && accessToken.trim().length > 0 && !loading && !loadingMore,
@@ -378,12 +394,8 @@ function App() {
     const counts = new Map()
 
     for (const ad of ads) {
-      const fingerprint = buildCreativeFingerprint(ad)
-      if (!fingerprint || /^\|*$/.test(fingerprint)) {
-        continue
-      }
-
-      counts.set(fingerprint, (counts.get(fingerprint) || 0) + 1)
+      const groupKey = buildAdGroupKey(ad)
+      counts.set(groupKey, (counts.get(groupKey) || 0) + 1)
     }
 
     return counts
@@ -454,6 +466,72 @@ function App() {
         return hostnames.some((host) => host === checkoutFilterNormalized)
       })
   }, [preDomainFilteredAds, checkoutDomainFilter, hostnamesByAdId])
+
+  const groupedFilteredAds = useMemo(() => {
+    const groups = new Map()
+
+    for (const ad of filteredAds) {
+      const groupKey = buildAdGroupKey(ad)
+      const existing = groups.get(groupKey)
+
+      if (!existing) {
+        groups.set(groupKey, {
+          groupKey,
+          ad,
+          ads: [ad],
+          detectedCopies: getDetectedCopies(ad, copiesByFingerprint),
+        })
+        continue
+      }
+
+      existing.ads.push(ad)
+    }
+
+    return Array.from(groups.values())
+  }, [filteredAds, copiesByFingerprint])
+
+  const activeSnapshotGroup = useMemo(
+    () => groupedFilteredAds.find((group) => group.groupKey === activeSnapshotGroupKey) || null,
+    [groupedFilteredAds, activeSnapshotGroupKey],
+  )
+
+  const activeSnapshotEntries = useMemo(() => {
+    if (!activeSnapshotGroup) {
+      return []
+    }
+
+    const byUrl = new Map()
+
+    for (const item of activeSnapshotGroup.ads || []) {
+      const snapshotUrl = item.ad_snapshot_url
+      if (!snapshotUrl || byUrl.has(snapshotUrl)) {
+        continue
+      }
+
+      byUrl.set(snapshotUrl, {
+        adId: item.id,
+        pageName: item.page_name || 'Sin nombre de página',
+        url: snapshotUrl,
+      })
+    }
+
+    return Array.from(byUrl.values())
+  }, [activeSnapshotGroup])
+
+  useEffect(() => {
+    if (!activeSnapshotGroupKey) {
+      return
+    }
+
+    const exists = groupedFilteredAds.some((group) => group.groupKey === activeSnapshotGroupKey)
+    if (!exists) {
+      setActiveSnapshotGroupKey('')
+    }
+  }, [groupedFilteredAds, activeSnapshotGroupKey])
+
+  const handleCloseSnapshotModal = () => {
+    setActiveSnapshotGroupKey('')
+  }
 
   const handleTokenChange = (event) => {
     const token = event.target.value.trim()
@@ -648,19 +726,18 @@ function App() {
           </p>
         )}
 
-        {filteredAds.length === 0 ? (
+        {groupedFilteredAds.length === 0 ? (
           <p className="empty">No hay anuncios para mostrar.</p>
         ) : (
           <>
             <ul className="results">
-              {filteredAds.map((ad) => (
+              {groupedFilteredAds.map(({ groupKey, ad, ads, detectedCopies }) => (
               (() => {
                 const statusInfo = getStatusInfo(ad)
-                const detectedCopies = getDetectedCopies(ad, copiesByFingerprint)
                 const platformChips = getPlatformChips(ad.publisher_platforms)
                 const languageChips = getLanguageChips(ad.languages)
                 return (
-              <li key={ad.id}>
+              <li key={groupKey}>
                 <div className="ad-top-row">
                   <div className={`ad-status-badge ${statusInfo.className}`}>
                     {statusInfo.label}
@@ -725,6 +802,13 @@ function App() {
                 <a href={ad.ad_snapshot_url} target="_blank" rel="noreferrer" className="ad-snapshot-btn">
                   Ver snapshot
                 </a>
+                <button
+                  type="button"
+                  className="ad-group-links-btn"
+                  onClick={() => setActiveSnapshotGroupKey(groupKey)}
+                >
+                  Ver snapshots agrupados ({ads.length})
+                </button>
               </li>
                 )
               })()
@@ -741,6 +825,34 @@ function App() {
           </>
         )}
       </section>
+
+      {activeSnapshotGroup && (
+        <div className="modal-backdrop" onClick={handleCloseSnapshotModal}>
+          <div className="snapshot-modal card" onClick={(event) => event.stopPropagation()}>
+            <div className="snapshot-modal-header">
+              <h3>Snapshots del grupo ({activeSnapshotEntries.length})</h3>
+              <button type="button" onClick={handleCloseSnapshotModal}>
+                Cerrar
+              </button>
+            </div>
+
+            {activeSnapshotEntries.length === 0 ? (
+              <p className="empty">No hay snapshots disponibles en este grupo.</p>
+            ) : (
+              <ul className="snapshot-list">
+                {activeSnapshotEntries.map((entry, index) => (
+                  <li key={entry.url}>
+                    <span>{`#${index + 1} · ${entry.pageName} · ID ${entry.adId}`}</span>
+                    <a href={entry.url} target="_blank" rel="noreferrer" className="ad-snapshot-btn">
+                      Abrir snapshot
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   )
 }
